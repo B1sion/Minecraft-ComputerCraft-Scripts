@@ -29,7 +29,7 @@ REQUIREMENTS
 1. Do not invent peripheral names, methods, or integration capabilities. Verify CC: Tweaked APIs against documentation and my existing code. For mod-specific peripherals, request a method listing or other evidence if needed.
 2. Use ordinary CC: Tweaked Lua compatible with the stated Minecraft/mod versions. Do not assume desktop Lua libraries, internet access, or an ME Bridge unless confirmed available.
 3. Make configuration interactive in the Minecraft computer where useful. Do not hardcode my inventory names or assume default routing rules unless I explicitly request them.
-4. If implementing routing rules, let me choose priority, ordered destinations, and filters. Explain whether rejected or partially moved items fall through to later rules.
+4. If implementing routing rules, let me choose priority, ordered destinations, and filters. Explain whether rejected or partially moved items fall through to later rules. Support an in-game edit menu that can append inputs, append outputs to the end of a rule, add rules at the lowest priority, remove entries, and change priorities/filters without resetting saved configuration. Preserve existing config files and provide save/cancel behavior.
 5. Prevent item loss and unintended routing: validate peripherals, avoid input/output loops, handle full destinations, check actual transfer counts, and leave unhandled items safely in the source inventory.
 6. Handle unexpected conditions explicitly: disconnected peripherals, missing metadata, empty inputs, failed transfers, and interrupted processing. Do not silently discard errors.
 7. Preserve my existing working behavior when modifying a script. Describe every intentional behavior change.

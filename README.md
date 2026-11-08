@@ -4,7 +4,7 @@ Automation scripts for **CC: Tweaked** in modded Minecraft. This repository cont
 
 | Script | Purpose | Setup |
 | --- | --- | --- |
-| [`Me_sorter.lua`](Me_sorter.lua) | Route items from wired inventories using user-defined filters, priorities, and fallback destinations | Interactive setup in the Minecraft computer |
+| [`Me_sorter.lua`](Me_sorter.lua) | Route items from wired inventories using user-defined filters, priorities, and fallback destinations | Interactive setup and editable in-game configuration |
 | [`ars.lua`](ars.lua) | Run Ars Nouveau Imbuement Chamber or Enchanting Apparatus processing through an AE2 Pattern Provider | Automatic peripheral discovery; physical setup required |
 
 > Each continuously running script should use its **own ComputerCraft computer**. The sorter does **not** directly scan items already inside ME Drives.
@@ -68,6 +68,7 @@ You can also connect a **Functional Storage Drawer Controller** as a destination
 ```text
 Me_sorter list     # show connected inventory peripheral names
 Me_sorter setup    # create/replace your rules interactively
+Me_sorter config   # edit saved configuration without resetting it
 Me_sorter          # run using saved configuration
 ```
 
@@ -77,6 +78,34 @@ The setup wizard asks for:
 2. Number of routing rules.
 3. For each rule: priority, comma-separated destination names in preferred order, and a filter.
 4. Whether to start sorting immediately after saving.
+
+### Editing configuration later (without resetting it)
+
+Stop the running sorter with `Ctrl+T`, then run:
+
+```text
+Me_sorter config
+```
+
+The in-game menu supports:
+
+| Menu action | Behavior |
+| --- | --- |
+| View configuration | Displays inputs and rules in priority order |
+| Add input(s) | Appends new input names to the **end** of the input scan list |
+| Remove input | Removes a selected input, leaving other inputs intact |
+| Add output(s) to rule | Appends destinations to the **end** of that rule's destination list |
+| Remove output from rule | Removes one selected destination |
+| Add rule | Appends a rule with a new, lowest-priority number |
+| Change rule priority | Changes numeric priority; lower numbers are processed first |
+| Change rule filter | Replaces the selected rule's filter only |
+| Remove rule | Deletes a selected rule |
+| Save and exit | Validates connected inventories and writes `sorter_config.txt` |
+| Exit without saving | Discards the session's edits |
+
+The sorter **does not run concurrently with its editor**. After saving, run `Me_sorter` again (or `reboot` if startup is configured). Adding an output does not move it ahead of earlier destinations. When two rules have the same priority, their original creation order breaks the tie.
+
+The editor requires at least one input, one rule and one destination per rule. It also prevents using an input inventory as an output, to avoid item loops. New peripheral names must be connected and detectable before saving.
 
 **Available filters** (exact names used in the wizard):
 
@@ -110,7 +139,7 @@ The sorter will attempt the locked drawers first; rejected items continue to the
 - Only inventories connected to the wired modem network are scanned; the script **cannot scan an entire AE2 ME Drive network**.
 - Items inserted directly through an ME Terminal bypass this sorter.
 - Source inventories cannot also be configured as destinations; the script checks for this.
-- Configured inventories must exist when the sorter starts. Re-run setup after changing peripheral names.
+- Configured inventories must exist when the sorter starts. Use `Me_sorter config` to change peripheral names or add/remove inventories without replacing the rest of your rules.
 - The sorter polls every **0.5 seconds** and leaves unaccepted items in place.
 - Test with a few sample items before connecting valuable storage.
 
