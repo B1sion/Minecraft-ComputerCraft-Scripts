@@ -1,237 +1,220 @@
-
--- Configurable Inventory Sorter
--- CC: Tweaked
--- Routes max-stack-1 items separately from stackables.
--- Supports multiple input and output inventories.
--- Saves configuration between restarts.
-
-local CONFIG_FILE = "sorter_config.txt"
-
-local function splitNames(line)
-    local result = {}
-
-    for name in line:gmatch("[^,]+") do
-        name = name:match("^%s*(.-)%s*$")
-        if name ~= "" then
-            table.insert(result, name)
-        end
-    end
-
-    return result
-end
-
-local function askList(prompt)
-    print("")
-    print(prompt)
-    print("Enter names separated by commas:")
-    local line = read()
-    return splitNames(line)
-end
-
-local function saveConfig(config)
-    local file = fs.open(CONFIG_FILE, "w")
-    file.write(textutils.serialize(config))
-    file.close()
-end
-
-local function loadConfig()
-    if not fs.exists(CONFIG_FILE) then
-        return nil
-    end
-
-    local file = fs.open(CONFIG_FILE, "r")
-    local config = textutils.unserialize(file.readAll())
-    file.close()
-
-    return config
-end
-
-local function showInventories()
-    print("")
-    print("Available inventories:")
-    print("----------------------")
-
-    for _, name in ipairs(peripheral.getNames()) do
-        if peripheral.hasType(name, "inventory") then
-            print(name)
-        end
-    end
-end
-
-local function setup()
-    term.clear()
-    term.setCursorPos(1, 1)
-
-    print("=== INVENTORY SORTER SETUP ===")
-
-    showInventories()
-
-    local config = {}
-
-    config.inputs = askList(
-        "1. INPUT inventories"
-    )
-
-    config.normal = askList(
-        "2. NORMAL item destinations (priority order)"
-    )
-
-    config.nonstack = askList(
-        "3. MAX STACK 1 destinations (priority order)"
-    )
-
-    saveConfig(config)
-
-    print("")
-    print("Configuration saved!")
-    sleep(1)
-
-    return config
-end
-
-local function validate(config)
-    local roles = {}
-
-    local groups = {
-        {name = "input", list = config.inputs},
-        {name = "normal", list = config.normal},
-        {name = "nonstack", list = config.nonstack}
-    }
-
-    for _, group in ipairs(groups) do
-        assert(
-            type(group.list) == "table"
-            and #group.list > 0,
-            "Missing inventory list: " .. group.name
-        )
-
-        for _, name in ipairs(group.list) do
-            assert(
-                peripheral.hasType(name, "inventory"),
-                "Inventory unavailable: " .. name
-            )
-
-            assert(
-                not roles[name],
-                "Inventory assigned twice: " .. name
-            )
-
-            roles[name] = group.name
-        end
-    end
-end
-
-local function moveToDestinations(source, slot, destinations)
-    local totalMoved = 0
-
-    for _, destination in ipairs(destinations) do
-        local detail = source.getItemDetail(slot)
-
-        if not detail then
-            break
-        end
-
-        local moved = source.pushItems(
-            destination,
-            slot
-        )
-
-        totalMoved = totalMoved + moved
-
-        -- If destination is full, try next one.
-        -- Remaining items stay in the source slot.
-    end
-
-    return totalMoved
-end
-
-local function sortInventory(name, config)
-    local source = peripheral.wrap(name)
-
-    if not source then
-        return 0
-    end
-
-    local movedTotal = 0
-
-    for slot in pairs(source.list()) do
-        local item = source.getItemDetail(slot)
-
-        if item then
-            local destinations
-
-            if item.maxCount == 1 then
-                destinations = config.nonstack
-            elseif type(item.maxCount) == "number" then
-                destinations = config.normal
-            else
-                -- Unknown stack size: do not misroute.
-                destinations = nil
-            end
-
-            if destinations then
-                movedTotal = movedTotal
-                    + moveToDestinations(
-                        source,
-                        slot,
-                        destinations
-                    )
-            else
-                print("Unknown maxCount: " .. item.name)
-            end
-        end
-    end
-
-    return movedTotal
-end
-
--- MAIN PROGRAM
-
+-- CC:Tweaked rule-based inventory sorter
+-- Configure entirely in-game: Me_sorter setup
+-- Rules evaluated by ascending numeric priority; rejected items fall through.
+local CONFIG = "sorter_config.txt"
 local args = {...}
-local config
 
-if args[1] == "setup" then
-    config = setup()
-else
-    config = loadConfig()
-
-    if not config then
-        config = setup()
+local function trim(s) return (s:gsub('^%s+', ''):gsub('%s+$', '')) end
+local function parseNames(s)
+  local out, seen = {}, {}
+  for part in s:gmatch('[^,]+') do
+    local name = trim(part)
+    if name ~= '' and not seen[name] then
+      out[#out+1] = name
+      seen[name] = true
     end
+  end
+  return out
+end
+local function prompt(message, default)
+  write(message .. (default and (' [' .. default .. ']') or '') .. ': ')
+  local value = trim(read())
+  if value == '' and default then return default end
+  return value
+end
+local function askNumber(message, default, minimum)
+  while true do
+    local n = tonumber(prompt(message, tostring(default)))
+    if n and n == math.floor(n) and (not minimum or n >= minimum) then return n end
+    print('Enter an integer >= ' .. tostring(minimum or 0))
+  end
+end
+local function askNames(message)
+  while true do
+    print(message)
+    local names = parseNames(prompt('Comma-separated peripheral names'))
+    if #names > 0 then return names end
+    print('At least one name is required.')
+  end
+end
+local filterOptions = {
+  'none', 'max_count_eq', 'max_count_le', 'max_count_ge',
+  'item_id', 'item_id_contains', 'mod_id', 'tag',
+  'display_name_contains', 'damaged'
+}
+local function showInventories()
+  print('\nConnected inventories:')
+  local count = 0
+  for _, name in ipairs(peripheral.getNames()) do
+    if peripheral.hasType(name, 'inventory') then
+      print('  ' .. name)
+      count = count + 1
+    end
+  end
+  if count == 0 then print('  (none detected)') end
+end
+local function askFilter()
+  print('\nFilter choices:')
+  for i, f in ipairs(filterOptions) do print(('  %d. %s'):format(i, f)) end
+  local n
+  repeat n = askNumber('Filter number', 1, 1) until n <= #filterOptions
+  local kind = filterOptions[n]
+  if kind == 'none' then return {type = kind} end
+  if kind == 'damaged' then return {type = kind} end
+  local value = ''
+  while value == '' do value = prompt('Filter value') end
+  if kind:find('max_count_', 1, true) then
+    local num = tonumber(value)
+    if not num or num < 1 or num ~= math.floor(num) then
+      print('Invalid max count; using 1.')
+      num = 1
+    end
+    value = num
+  end
+  return {type = kind, value = value}
+end
+local function setup()
+  term.clear()
+  term.setCursorPos(1, 1)
+  print('=== ME SORTER SETUP ===')
+  showInventories()
+  local cfg = {version = 2, inputs = askNames('\nINPUT inventories (scanned for items)'), rules = {}}
+  local count = askNumber('\nNumber of routing rules', 1, 1)
+  for i = 1, count do
+    print(('\n=== Rule %d of %d ==='):format(i, count))
+    local priority = askNumber('Priority (lower runs first)', i, 0)
+    local destinations = askNames('DESTINATIONS (tried left to right)')
+    local filter = askFilter()
+    cfg.rules[#cfg.rules+1] = {
+      priority = priority, destinations = destinations, filter = filter, order = i
+    }
+  end
+  local handle = assert(fs.open(CONFIG, 'w'))
+  handle.write(textutils.serialize(cfg))
+  handle.close()
+  print('\nSaved ' .. CONFIG)
+  return cfg
+end
+local function loadConfig()
+  if not fs.exists(CONFIG) then return nil end
+  local handle = assert(fs.open(CONFIG, 'r'))
+  local contents = handle.readAll()
+  handle.close()
+  local cfg = textutils.unserialize(contents)
+  if type(cfg) ~= 'table' or cfg.version ~= 2 then return nil end
+  return cfg
+end
+local function validate(cfg)
+  assert(type(cfg.inputs) == 'table' and #cfg.inputs > 0, 'No inputs')
+  assert(type(cfg.rules) == 'table' and #cfg.rules > 0, 'No rules')
+  local inputs = {}
+  for _, name in ipairs(cfg.inputs) do
+    assert(peripheral.hasType(name, 'inventory'), 'Missing input: ' .. name)
+    assert(not inputs[name], 'Duplicate input: ' .. name)
+    inputs[name] = true
+  end
+  for i, rule in ipairs(cfg.rules) do
+    assert(type(rule.priority) == 'number', 'Invalid priority in rule ' .. i)
+    assert(type(rule.destinations) == 'table' and #rule.destinations > 0, 'Missing destinations in rule ' .. i)
+    assert(type(rule.filter) == 'table' and type(rule.filter.type) == 'string', 'Invalid filter in rule ' .. i)
+    local seen = {}
+    for _, name in ipairs(rule.destinations) do
+      assert(not inputs[name], 'Destination is also an input: ' .. name)
+      assert(not seen[name], 'Duplicate destination in rule ' .. i .. ': ' .. name)
+      assert(peripheral.hasType(name, 'inventory'), 'Missing destination: ' .. name)
+      seen[name] = true
+    end
+  end
+  table.sort(cfg.rules, function(a, b)
+    if a.priority ~= b.priority then return a.priority < b.priority end
+    return (a.order or 0) < (b.order or 0)
+  end)
+end
+local function matches(filter, item)
+  local kind, value = filter.type, filter.value
+  if kind == 'none' then return true end
+  if kind == 'max_count_eq' then return item.maxCount == value end
+  if kind == 'max_count_le' then return item.maxCount and item.maxCount <= value end
+  if kind == 'max_count_ge' then return item.maxCount and item.maxCount >= value end
+  if kind == 'item_id' then return item.name == value end
+  if kind == 'item_id_contains' then return item.name:lower():find(tostring(value):lower(), 1, true) ~= nil end
+  if kind == 'mod_id' then return item.name:match('^([^:]+):') == value end
+  if kind == 'tag' then return type(item.tags) == 'table' and item.tags[value] == true end
+  if kind == 'display_name_contains' then
+    return type(item.displayName) == 'string' and
+      item.displayName:lower():find(tostring(value):lower(), 1, true) ~= nil
+  end
+  if kind == 'damaged' then
+    return type(item.damage) == 'number' and item.damage > 0
+  end
+  return false
+end
+local function transferSlot(sourceName, source, slot, cfg)
+  local item = source.getItemDetail(slot)
+  if not item then return 0 end
+  local total = 0
+  for _, rule in ipairs(cfg.rules) do
+    if matches(rule.filter, item) then
+      for _, destination in ipairs(rule.destinations) do
+        local remaining = source.getItemDetail(slot)
+        if not remaining then return total end
+        -- pushItems returns the number moved; zero means try next destination/rule.
+        local ok, moved = pcall(source.pushItems, destination, slot)
+        if ok then
+          total = total + (moved or 0)
+        else
+          print(('Transfer failed %s -> %s: %s'):format(sourceName, destination, tostring(moved)))
+        end
+      end
+    end
+  end
+  return total
+end
+local function run(cfg)
+  validate(cfg)
+  term.clear()
+  term.setCursorPos(1, 1)
+  print('=== ME SORTER ===')
+  print('Rules: ' .. #cfg.rules .. ' | Inputs: ' .. #cfg.inputs)
+  print('Ctrl+T to stop; run Me_sorter setup to edit.')
+  print('')
+  local total = 0
+  while true do
+    local cycle = 0
+    for _, name in ipairs(cfg.inputs) do
+      local source = peripheral.wrap(name)
+      if source and peripheral.hasType(name, 'inventory') then
+        local ok, items = pcall(source.list)
+        if ok and type(items) == 'table' then
+          for slot in pairs(items) do
+            local success, moved = pcall(transferSlot, name, source, slot, cfg)
+            if success then cycle = cycle + moved
+            else print('Slot error ' .. name .. ':' .. slot .. ' ' .. tostring(moved)) end
+          end
+        end
+      end
+    end
+    total = total + cycle
+    term.setCursorPos(1, 5)
+    term.clearLine()
+    print('Moved this scan: ' .. cycle)
+    term.clearLine()
+    print('Moved since start: ' .. total)
+    sleep(0.5)
+  end
 end
 
-validate(config)
-
-term.clear()
-term.setCursorPos(1, 1)
-
-print("=== INVENTORY SORTER ===")
-print("Status: RUNNING")
-print("Inputs: " .. #config.inputs)
-print("Normal outputs: " .. #config.normal)
-print("Nonstack outputs: " .. #config.nonstack)
-print("------------------------")
-
-local totalMoved = 0
-
-while true do
-    local movedThisCycle = 0
-
-    for _, name in ipairs(config.inputs) do
-        if peripheral.hasType(name, "inventory") then
-            movedThisCycle = movedThisCycle
-                + sortInventory(name, config)
-        end
-    end
-
-    totalMoved = totalMoved + movedThisCycle
-
-    term.setCursorPos(1, 8)
-    term.clearLine()
-    print("Last cycle: " .. movedThisCycle)
-
-    term.clearLine()
-    print("Total moved: " .. totalMoved)
-
-    sleep(0.5)
+if args[1] == 'list' then
+  showInventories()
+elseif args[1] == 'setup' then
+  local cfg = setup()
+  local answer = prompt('Start sorting now? (y/n)', 'y')
+  if answer:lower() == 'y' then run(cfg) end
+else
+  local cfg = loadConfig()
+  if not cfg then
+    print('No compatible saved configuration; starting setup.')
+    cfg = setup()
+  end
+  run(cfg)
 end
