@@ -1,509 +1,216 @@
 # Minecraft ComputerCraft Scripts
 
-A collection of automation scripts for **CC: Tweaked**, designed for modded Minecraft environments using Applied Energistics 2 (AE2), Extended AE, Ars Nouveau, and external storage systems.
+Automation scripts for **CC: Tweaked** in modded Minecraft. This repository contains a configurable inventory sorter for AE2 workflows and a unified Ars Nouveau crafting controller.
 
-## Available Scripts
+| Script | Purpose | Setup |
+| --- | --- | --- |
+| [`Me_sorter.lua`](Me_sorter.lua) | Route items from wired inventories using user-defined filters, priorities, and fallback destinations | Interactive setup in the Minecraft computer |
+| [`ars.lua`](ars.lua) | Run Ars Nouveau Imbuement Chamber or Enchanting Apparatus processing through an AE2 Pattern Provider | Automatic peripheral discovery; physical setup required |
 
-| Script | Description |
-|---|---|
-| `Me_sorter.lua` | Automatically sorts stackable and non-stackable items into configurable inventories. |
-| `ars.lua` | Automates Ars Nouveau Imbuement Chambers and Enchanting Apparatus through AE2 autocrafting. |
+> Each continuously running script should use its **own ComputerCraft computer**. The sorter does **not** directly scan items already inside ME Drives.
 
-Both scripts operate independently and can run continuously on separate ComputerCraft computers.
+## Quick install
 
----
+On the **ComputerCraft shell** (not the Lua interpreter), download the script you need:
 
-# 1. ME Inventory Sorter
+**ME sorter**
 
-**File:** `Me_sorter.lua`
-
-A configurable inventory sorter that separates items according to their maximum stack size.
-
-### Features
-
-- Automatically identifies items with a maximum stack size of 1.
-- Routes stackable and non-stackable items to separate inventories.
-- Supports multiple input and output inventories.
-- Uses configurable destination priority.
-- Automatically tries alternative destinations when one cannot accept an item.
-- Saves configuration between restarts.
-- Continuously scans inventories every 0.5 seconds.
-- Leaves items in the input inventory if no destination can accept them.
-
-## Installation
-
-On a ComputerCraft computer, run:
-
-```lua
+```text
 wget https://raw.githubusercontent.com/B1sion/Minecraft-ComputerCraft-Scripts/main/Me_sorter.lua Me_sorter.lua
-```
-
-Start the script:
-
-```lua
-Me_sorter
-```
-
-On the first launch, the configuration wizard starts automatically.
-
-## Physical Setup
-
-Connect the computer and all inventories using Wired Modems and Networking Cables.
-
-Recommended AE2 integration:
-
-```text
-                      INPUT CHEST
-                           |
-                           v
-                    CC:Tweaked Computer
-                           |
-                     Item Inspection
-                      /          \
-                     /            \
-             Max Stack = 1     Max Stack > 1
-                   |                |
-                   v                v
-             Sophisticated      Normal Output
-             Storage Chests         Chest
-                   |                |
-                   v                v
-              ME Storage Bus    ME Import Bus
-                    \              /
-                     \            /
-                       ME Network
-```
-
-The input chest should not have an ME Import Bus, because that would allow AE2 to remove items before the sorter processes them.
-
-## Configuration
-
-The program displays available inventory peripheral names and requests three comma-separated lists.
-
-**1. Input inventories**
-
-```text
-minecraft:chest_0,minecraft:chest_1
-```
-
-These inventories contain unsorted items.
-
-**2. Normal item destinations**
-
-```text
-minecraft:chest_2,minecraft:chest_3
-```
-
-Items with a maximum stack size greater than 1 are sent here.
-
-**3. Non-stackable item destinations**
-
-```text
-sophisticatedstorage:chest_0,sophisticatedstorage:chest_1
-```
-
-Items with a maximum stack size of exactly 1 are sent here.
-
-### Destination Priority
-
-Inventories are attempted in the order entered.
-
-For example:
-
-```text
-chest_0,chest_1,chest_2
-```
-
-The sorter attempts `chest_0` first, then `chest_1`, then `chest_2`.
-
-If none accepts the item, it remains in the input inventory.
-
-### Finding Peripheral Names
-
-Open the ComputerCraft Lua interpreter:
-
-```lua
-lua
-```
-
-Then enter:
-
-```lua
-peripheral.getNames()
-```
-
-Use the names displayed when configuring the sorter.
-
-Exit the interpreter with:
-
-```lua
-exit()
-```
-
-## Running and Reconfiguring
-
-Start with saved settings:
-
-```lua
-Me_sorter
-```
-
-Reconfigure:
-
-```lua
 Me_sorter setup
 ```
 
-Configuration is stored locally in:
+**Ars automation**
 
 ```text
-sorter_config.txt
-```
-
-The sorter cannot directly inspect items already inside ME Drives. Items must pass through its configured input inventories.
-
----
-
-# 2. Ars Nouveau Automation Controller
-
-**File:** `ars.lua`
-
-A unified automation controller for Ars Nouveau machines using CC: Tweaked and Extended AE.
-
-Supports:
-
-- **Imbuement Chamber**
-- **Enchanting Apparatus**
-
-The script automatically identifies the connected machine and selects the correct automation logic.
-
-It is designed to work with AE2 Pattern Providers and processing patterns.
-
-## Installation
-
-On a separate ComputerCraft computer, run:
-
-```lua
 wget https://raw.githubusercontent.com/B1sion/Minecraft-ComputerCraft-Scripts/main/ars.lua ars.lua
-```
-
-Start the controller:
-
-```lua
 ars
 ```
 
-No configuration file is required. The script automatically discovers connected peripherals.
+After initial setup, run `Me_sorter` to reuse the saved sorter configuration, or `ars` to start the Ars controller again.
 
-## Required Components
+## 1. Rule-based ME inventory sorter
 
-| Component | Purpose |
-|---|---|
-| ComputerCraft Computer | Executes the automation |
-| Wired Modems | Connects machine inventories |
-| Networking Cables | Connects peripherals to the computer |
-| Extended AE Pattern Provider | Supplies crafting ingredients |
-| Ingredient Buffer | Holds ingredients before processing |
-| Imbuement Chamber or Enchanting Apparatus | Performs crafting |
-| Arcane Pedestals | Holds supporting ingredients |
+### What it does
 
-Each computer must connect to exactly:
+The sorter scans one or more **input inventories** connected via CC: Tweaked wired modems. You define **all** routing rules yourself: no preloaded priorities, destinations, or default rules.
 
-- 1 Pattern Provider
-- 1 Ingredient Buffer
-- 1 Ars Nouveau machine
-- Any pedestals needed for its recipes
+- Each rule has a **numeric priority** (lower number runs first), an **ordered list of destination inventories**, and **one filter**.
+- If an item matches a rule, the sorter tries its destinations from left to right.
+- If a destination refuses the item or has no space, the sorter tries the next destination, then continues to later matching rules if items remain.
+- A filter of `none` matches everything and is useful as a catch-all.
+- If no destination accepts an item, it stays in the input inventory.
+- Configuration is saved in `sorter_config.txt` on the computer.
 
-**Important:** Do not connect both an Imbuement Chamber and an Enchanting Apparatus to the same computer. Use separate computers for each machine.
+### Hardware and wiring
 
-The script identifies the machine by its peripheral name.
+Minimum: one ComputerCraft computer, wired modems and networking cable, one input inventory, and one destination inventory. Connect **each inventory** to the wired network, and make sure its modem is enabled. Add as many input and output inventories as you need.
 
-## Physical Setup
+Optional AE2 arrangement:
 
 ```text
-                   AE2 ME NETWORK
-                         |
-                         v
-                 Pattern Provider
-                         |
-                         v
-                  Ingredient Buffer
-                         |
-                         v
-                  CC:Tweaked Computer
-                         |
-             +-----------+-----------+
-             |                       |
-             v                       v
-       Ars Machine             Arcane Pedestals
-             |                       |
-             +-----------+-----------+
-                         |
-                         v
-                  Pattern Provider
-                         |
-                         v
-                    ME Network
+Dump chest(s) --wired modem--> ComputerCraft sorter
+                                   |
+                 +-----------------+------------------+
+                 |                                    |
+       Sophisticated Storage                  Stackable output chest
+         (ME Storage Bus)                        (ME Import Bus)
+                 |                                    |
+                 +--------------- AE2 ----------------+
 ```
 
-The diagram represents item flow. The computer uses wired peripherals to move ingredients and outputs; it does not require physical item pipes between every component.
+You can also connect a **Functional Storage Drawer Controller** as a destination. To prevent unwanted items filling new drawers, lock and assign the drawers first. An ME Storage Bus exposes external storage to AE2; an ME Import Bus physically imports items from its attached inventory.
 
-## AE2 Pattern Provider Setup
+**Do not put an ME Import Bus on the input chest**, or AE2 may take items before the sorter inspects them.
 
-Configure the Pattern Provider to use **Blocking Mode**.
+### In-game configuration
 
-This is important because the controller expects to process one stable batch at a time.
+```text
+Me_sorter list     # show connected inventory peripheral names
+Me_sorter setup    # create/replace your rules interactively
+Me_sorter          # run using saved configuration
+```
 
-Create AE2 processing patterns for the desired recipes.
+The setup wizard asks for:
 
-The script assumes that the **first occupied slot in the Ingredient Buffer is the center ingredient**.
+1. Input inventory names, comma-separated.
+2. Number of routing rules.
+3. For each rule: priority, comma-separated destination names in preferred order, and a filter.
+4. Whether to start sorting immediately after saving.
 
-This is a critical requirement of the current implementation. Incorrect ingredient ordering can cause the wrong item to be inserted into the center machine.
+**Available filters** (exact names used in the wizard):
 
-## Imbuement Chamber Mode
+| Filter | Meaning | Example value |
+| --- | --- | --- |
+| `none` | All items | No value |
+| `max_count_eq` | Maximum stack size equals | `1` |
+| `max_count_le` | Maximum stack size at most | `16` |
+| `max_count_ge` | Maximum stack size at least | `64` |
+| `item_id` | Exact registry ID | `minecraft:diamond` |
+| `item_id_contains` | Registry ID contains text | `sword` |
+| `mod_id` | Registry namespace equals | `minecraft` |
+| `tag` | Item has a given tag | `c:ingots/iron` |
+| `display_name_contains` | Display name contains text | `Pickaxe` |
+| `damaged` | Item has damage greater than zero | No value |
 
-When the computer detects an Imbuement Chamber, it automatically uses imbuement mode.
+Each rule currently has **one** filter; compound AND/OR filters are **not** implemented. Filters depend on metadata exposed by the connected inventory peripheral.
 
-Processing sequence:
+**Example only — you define your own rules:**
 
-1. Waits for ingredients to appear in the Ingredient Buffer.
-2. Waits for the buffer contents to stabilize.
-3. Treats the first occupied buffer slot as the center ingredient.
-4. Places remaining ingredients onto Arcane Pedestals.
-5. Inserts center ingredients one at a time.
-6. Waits for each crafting operation to finish.
-7. Returns completed outputs to the Pattern Provider.
-8. Clears pedestal ingredients after the batch.
+| Priority | Destination(s) | Filter |
+| --- | --- | --- |
+| 10 | Locked drawer controller | `none` |
+| 20 | Sophisticated chest A, chest B | `max_count_eq` → `1` |
+| 30 | ME import chest | `none` |
 
-This allows batches containing multiple center ingredients while reusing supporting pedestal ingredients.
+The sorter will attempt the locked drawers first; rejected items continue to the non-stackable rule, then the catch-all. Items may be split across destinations if the first destination has limited space.
 
-### Starting Imbuement Automation
+### Limitations and safety
 
-Run:
+- Only inventories connected to the wired modem network are scanned; the script **cannot scan an entire AE2 ME Drive network**.
+- Items inserted directly through an ME Terminal bypass this sorter.
+- Source inventories cannot also be configured as destinations; the script checks for this.
+- Configured inventories must exist when the sorter starts. Re-run setup after changing peripheral names.
+- The sorter polls every **0.5 seconds** and leaves unaccepted items in place.
+- Test with a few sample items before connecting valuable storage.
 
-```lua
+## 2. Ars Nouveau controller
+
+The `ars.lua` script auto-detects **one** connected Ars Nouveau machine: an **Imbuement Chamber** *or* an **Enchanting Apparatus**. It is intended to work with CC: Tweaked wired inventory peripherals and an AE2/Extended AE Pattern Provider.
+
+### Required setup
+
+Connect the following to **one computer** using wired modems/network cable:
+
+- Exactly **one Pattern Provider** whose peripheral name contains `pattern_provider`.
+- Exactly **one Ingredient Buffer** whose name contains `ingredient_buffer`.
+- Exactly **one** machine named like `ars_nouveau:imbuement_chamber` or `ars_nouveau:enchanting_apparatus`.
+- Enough `ars_nouveau:arcane_pedestal` inventories for supporting ingredients.
+
+The computer must be able to transfer items between the buffer, machine, pedestals, and Pattern Provider. Set the **Pattern Provider to blocking mode** and create the relevant AE2 processing patterns.
+
+**Critical assumption:** The **first occupied slot in the Ingredient Buffer** is treated as the **center ingredient**. Other occupied slots supply pedestal ingredients. Check the order before automating expensive recipes; the script does not infer recipes.
+
+### How it runs
+
+```text
 ars
 ```
 
-Expected startup information:
+On startup, the script reports its detected mode, machine, buffer, provider, and pedestal count.
+
+- **Imbuement mode:** Loads pedestal ingredients, processes center items one at a time, returns outputs to the Pattern Provider, and clears pedestals.
+- **Enchanting mode:** Places pedestal ingredients, processes **one center reagent per batch**, returns the output, and clears pedestals.
+- The script waits for a result and **stops on failure** (including its 120-second result timeout), leaving items in place for inspection.
+
+Keep the machine and pedestals empty before starting a new batch. Do not connect both Ars machine types to the same computer.
+
+## 3. Automatic startup
+
+After verifying a script works, open `startup.lua` **on that script's computer**:
 
 ```text
-Unified Ars Controller | imbuement
-Machine: ars_nouveau:imbuement_chamber_...
-Buffer: ...
-Provider: ...
-Pedestals: ...
-Setup OK
-```
-
-The controller then waits for AE2 crafting requests.
-
-## Enchanting Apparatus Mode
-
-When the computer detects an Enchanting Apparatus, it automatically switches to enchanting mode.
-
-Processing sequence:
-
-1. Waits for ingredients in the buffer.
-2. Treats the first occupied slot as the center reagent.
-3. Distributes supporting ingredients across pedestals.
-4. Inserts the center reagent into the Enchanting Apparatus.
-5. Waits for the resulting item.
-6. Returns the output to the Pattern Provider.
-7. Clears remaining pedestal items.
-
-The current script processes **one center reagent per enchanting batch**.
-
-It requires enough connected pedestals for all supporting ingredients.
-
-### Starting Enchanting Automation
-
-Run:
-
-```lua
-ars
-```
-
-Expected startup information:
-
-```text
-Unified Ars Controller | enchanting
-Machine: ars_nouveau:enchanting_apparatus_...
-Buffer: ...
-Provider: ...
-Pedestals: ...
-Setup OK
-```
-
-The controller automatically waits for AE2 crafting requests.
-
-## Important Ars Automation Rules
-
-- Use one computer per Ars machine.
-- Enable Pattern Provider Blocking Mode.
-- Keep the machine and pedestals empty before starting a batch.
-- Ensure all required inventories are accessible through wired modems.
-- The first occupied Ingredient Buffer slot must contain the center ingredient.
-- The controller uses a 120-second timeout when waiting for a crafting result.
-- If processing fails, the controller stops and leaves items in place for recovery.
-
-The script does not require a manually configured recipe database. It uses the ingredients supplied by the Pattern Provider.
-
----
-
-# 3. Automatic Startup
-
-Both scripts can start automatically whenever their respective ComputerCraft computers reboot.
-
-**Use a separate computer for each continuously running script.**
-
-## ME Sorter Computer
-
-Open the startup file:
-
-```lua
 edit startup.lua
 ```
 
-Add:
+For the sorter computer, put:
 
 ```lua
 shell.run("Me_sorter")
 ```
 
-Save the file.
-
-## Ars Automation Computer
-
-Open the startup file:
-
-```lua
-edit startup.lua
-```
-
-Add:
+For the separate Ars computer, put:
 
 ```lua
 shell.run("ars")
 ```
 
-Save the file.
+Save and run `reboot`. Use **Ctrl+T** to terminate a running program before updating it.
 
-## Reboot
+## 4. Updating
 
-On each computer, run:
+On the relevant computer, stop the running script and download the new version:
 
-```lua
-reboot
-```
-
-The corresponding script should start automatically.
-
-For the ME Sorter, complete its configuration before enabling automatic startup.
-
-For Ars automation, verify that the correct peripherals are connected and the machine inventories are empty before enabling automatic startup.
-
----
-
-# 4. Updating Scripts
-
-To update the ME Sorter:
-
-```lua
+```text
 delete Me_sorter.lua
 wget https://raw.githubusercontent.com/B1sion/Minecraft-ComputerCraft-Scripts/main/Me_sorter.lua Me_sorter.lua
 ```
 
-To update Ars automation:
+Or for Ars:
 
-```lua
+```text
 delete ars.lua
 wget https://raw.githubusercontent.com/B1sion/Minecraft-ComputerCraft-Scripts/main/ars.lua ars.lua
 ```
 
-Restart the corresponding computer after updating.
+Updating `Me_sorter.lua` this way leaves `sorter_config.txt` intact. Re-run `Me_sorter setup` if the configuration format changes or you want new rules.
 
-The ME Sorter's saved configuration file is not deleted by these commands.
+## 5. Troubleshooting
 
-**Note:** If automatic startup is enabled, stop the running program with `Ctrl+T` before updating it.
+| Symptom | What to check |
+| --- | --- |
+| Inventory missing | Wired modem enabled, cable connected, correct peripheral name; use `Me_sorter list` |
+| Sorter not moving items | Destination space, filter match, inventory transfer support, and source/destination roles |
+| Items bypass sorter | Ensure the ME Import Bus is on the **output** chest, not the input |
+| Items missing from ME Terminal | ME Storage Bus on external storage, or ME Import Bus on normal output chest |
+| Ars reports multiple machines/providers | Disconnect extras; the controller requires exactly one of each specified peripheral |
+| Ars cannot craft | Check center ingredient buffer slot, pedestal ingredients, valid recipe, and machine requirements |
+| Ars times out | Inspect items left in machine/pedestals before restarting |
 
----
+## 6. Build or customize scripts with AI
 
-# 5. Troubleshooting
+See **[`AI_SCRIPTING_PROMPT.md`](AI_SCRIPTING_PROMPT.md)** for a reusable prompt to help an AI coding assistant design, modify, test, and document new CC: Tweaked automation scripts for your own modpack.
 
-## ME Sorter
+The prompt emphasizes checking real peripheral APIs, avoiding invented methods, safe inventory transfers, and producing complete runnable Lua files.
 
-**Inventory unavailable**
-
-Ensure that the inventory is connected through an active wired modem and that its configured peripheral name is correct.
-
-**Items are not moving**
-
-Check that the destination has available space and that the source inventory supports ComputerCraft inventory transfers.
-
-**Items are being sorted incorrectly**
-
-Run:
-
-```lua
-Me_sorter setup
-```
-
-Verify the normal and non-stackable destination lists.
-
-**Items do not appear in AE2**
-
-Check that the Sophisticated Storage inventory has an ME Storage Bus connected to the ME network, or that the normal output chest has a working ME Import Bus.
-
-## Ars Controller
-
-**Expected exactly one Pattern Provider**
-
-The computer detected zero or multiple Pattern Providers. Ensure that only one matching provider is connected.
-
-**Expected exactly one Ingredient Buffer**
-
-The computer requires exactly one connected peripheral whose name contains `ingredient_buffer`.
-
-**Connect exactly one Ars machine per computer**
-
-Both machine types may be connected, or no compatible machine was detected. Disconnect unnecessary Ars machines.
-
-**Machine/pedestals not empty**
-
-Clear the machine and its pedestals before restarting automation.
-
-**Not enough pedestals**
-
-Connect enough Arcane Pedestals to hold the recipe's supporting ingredients.
-
-**Timed out waiting for result**
-
-Possible causes include:
-
-- Incorrect ingredient order
-- Invalid recipe
-- Missing source or other crafting requirements
-- Missing pedestal ingredients
-- Insufficient processing time
-
-Inspect the machine and inventories before restarting.
-
----
-
-# 6. Repository Structure
+## Repository files
 
 ```text
 Minecraft-ComputerCraft-Scripts/
+├── README.md
+├── AI_SCRIPTING_PROMPT.md
 ├── Me_sorter.lua
-├── ars.lua
-└── README.md
+└── ars.lua
 ```
 
-## Credits
-
-Developed for Minecraft automation using CC: Tweaked and compatible modded storage and crafting systems.
-
-**Repository:** https://github.com/B1sion/Minecraft-ComputerCraft-Scripts
-
-**Scripts:** `Me_sorter.lua` and `ars.lua`
+These scripts are community automation utilities; test them in your own pack before using them with valuable inventories.
